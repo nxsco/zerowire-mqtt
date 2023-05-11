@@ -4,10 +4,13 @@ import (
 	"fmt"
 	"os"
 	"time"
+
+	"github.com/nxsco/zerowire-mqtt/pkg/alarm"
+	"github.com/nxsco/zerowire-mqtt/pkg/config"
 )
 
 func main() {
-	zwConfig, err := getConfig()
+	zwConfig, err := config.New()
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -19,13 +22,25 @@ func main() {
 	}
 	defer client.Disconnect(250)
 
+	zalarm := alarm.New(zwConfig)
+	channel := make(chan string)
+	go monitorAlarm(zalarm, channel, zwConfig.AlarmPollInterval)
+
 	for {
-		a, _ := GetAlarm(zwConfig)
-		status, _ := a.GetStatus()
-
-		token := client.Publish(zwConfig.mqttStateTopic, 0, false, status)
+		token := client.Publish(zwConfig.MqttStateTopic, 0, false, <-channel)
 		token.Wait()
+	}
+}
 
-		time.Sleep(time.Duration(zwConfig.alarmPollInterval) * time.Second)
+func monitorAlarm(a *alarm.Alarm, c chan string, i int64) {
+	for {
+		status, err := a.GetStatus()
+		if err == nil {
+			c <- status
+		} else {
+			fmt.Println(err)
+		}
+
+		time.Sleep(time.Duration(i) * time.Second)
 	}
 }
